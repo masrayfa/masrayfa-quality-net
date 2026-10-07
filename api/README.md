@@ -47,6 +47,21 @@ rails db:migrate
 rails db:seed
 ```
 
+### Seeded development admin
+
+`db:seed` is idempotent and creates one admin user so a fresh clone can log in
+(local development only — never use these credentials outside dev):
+
+| Email | Password | Role |
+|---|---|---|
+| `admin@example.com` | `password123` | `admin` |
+
+```bash
+curl -s -X POST http://localhost:3001/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"password123"}'
+```
+
 ---
 
 ## 4. Start Redis via Docker

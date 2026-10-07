@@ -369,6 +369,35 @@ end
 puts "  Done — #{B7_SKILLS.size} skills seeded."
 puts ""
 
+# ── Admin user (local dev login) ─────────────────────────────────────────────
+#
+# The API's login endpoint requires an admin User row, but this seed used to
+# create none — so a fresh clone could never log in.
+# These are deliberately non-secret development credentials.
+
+ADMIN_USER = {
+  email:    "admin@example.com",
+  password: "password123",
+  role:     "admin"
+}.freeze
+
+puts "== Seeding admin user (local dev login) =="
+
+admin = User.find_or_initialize_by(email: ADMIN_USER[:email])
+admin.assign_attributes(
+  password: ADMIN_USER[:password],
+  role:     ADMIN_USER[:role]
+)
+
+if admin.save
+  action = admin.previously_new_record? ? "Created" : "Updated"
+  puts "  #{action}: #{admin.email} (role=#{admin.role})"
+else
+  puts "  ERROR #{ADMIN_USER[:email]}: #{admin.errors.full_messages.join(', ')}"
+end
+
+puts ""
+
 # ── Print usage instructions ──────────────────────────────────────────────────
 
 org = ActiveRecord::Base.connection.select_one(
@@ -382,19 +411,15 @@ puts "Your test organization:"
 puts "  id     : #{org['id']}"
 puts "  scheme : #{org['scheme']}"
 puts ""
-puts "To mint a JWT for testing, open the Rails console:"
+puts "Log in to mint an admin token:"
 puts ""
+puts "  curl -s -X POST http://localhost:3001/api/v1/auth/login \\"
+puts "       -H 'Content-Type: application/json' \\"
+puts "       -d '{\"email\":\"#{ADMIN_USER[:email]}\",\"password\":\"#{ADMIN_USER[:password]}\"}'"
+puts ""
+puts "Candidate tokens (WebSocket ?token=) have no seeded user; mint one in the console:"
 puts "  bundle exec rails console"
-puts ""
-puts "Then run:"
-puts ""
-puts "  # Assessor / admin token (can create assessments, view sessions, etc.)"
-puts "  token = JsonWebToken.encode({ user_id: 1, role: 'admin', scheme: '#{TEST_ORG[:scheme]}' })"
-puts "  puts token"
-puts ""
-puts "  # Candidate token (used in WebSocket ?token= param)"
-puts "  token = JsonWebToken.encode({ user_id: 2, role: 'student', scheme: '#{TEST_ORG[:scheme]}' })"
-puts "  puts token"
+puts "  > JsonWebToken.encode({ user_id: 2, role: 'student', scheme: '#{TEST_ORG[:scheme]}' })"
 puts ""
 puts "Then hit the API:"
 puts ""

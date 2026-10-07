@@ -12,7 +12,9 @@ class ApplicationController < ActionController::API
   #   authorize_auth_token! :assessor      # allows admin or assessor
   #   authorize_auth_token! :any           # any authenticated user
   def self.authorize_auth_token!(*roles, **options)
-    before_action(options) { authenticate_with_roles!(roles) }
+    # prepend: true so a missing/invalid token yields 401 before tenant
+    # resolution — otherwise require_tenant! masks it as a 403 TenantNotFound.
+    before_action(options.merge(prepend: true)) { authenticate_with_roles!(roles) }
   end
 
   private

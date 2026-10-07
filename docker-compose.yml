@@ -31,6 +31,10 @@ services:
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
       REDIS_URL: redis://redis:6379/1
+      # Local-dev-only values (not secrets): SECRET_KEY_BASE signs JWTs and
+      # ALLOWED_ORIGINS has no default — the app refuses to boot without it.
+      SECRET_KEY_BASE: dev-only-not-a-secret-change-me
+      ALLOWED_ORIGINS: "*"
     depends_on:
       db:
         condition: service_healthy
