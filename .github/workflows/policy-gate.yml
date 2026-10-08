@@ -1,0 +1,33 @@
+name: policy-gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  policy-gate:
+    name: policy-gate
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the BASE commit so the PR cannot rewrite the gate that judges it.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      # `gh` is preinstalled on GitHub-hosted runners. `--json files` caps at
+      # 100 files - fine for the PR sizes this gate guards
+      # (upgrade path: `gh api --paginate repos/$GH_REPO/pulls/$N/files`).
+      - name: Fetch PR body and changed files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh pr view "${{ github.event.pull_request.number }}"
+          --repo "${{ github.repository }}"
+          --json body,files > pr-payload.json
+
+      - name: Evaluate Definition of Ready/Done
+        run: node .github/scripts/policy-gate.cjs pr-payload.json
