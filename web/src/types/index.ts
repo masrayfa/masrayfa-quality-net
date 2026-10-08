@@ -16,7 +16,7 @@ export interface Assessment {
 
 export interface AssessmentSkill {
   id?: number;
-  skill_id?: number;
+  skill_id?: string | null; // API: assessment_skills.skill_id varchar(50), e.g. "sk-eng-001" (A1)
   skill_label: string;
   is_custom: boolean;
   expected_level: number;
@@ -49,7 +49,7 @@ export interface Session {
 
 export interface CoverageSkill {
   id: number;
-  skill_id: number;
+  skill_id: string | null; // API: coverage_maps.skill_id varchar(50); nil for discovered skills (A1)
   skill_label: string;
   is_discovered: boolean;
   state: "not_yet" | "initiated" | "partial" | "covered";
@@ -87,10 +87,10 @@ export interface Portfolio {
 
 export interface PortfolioSkill {
   id: number;
-  skill_id?: number;
+  skill_id?: string | null; // API: portfolio_skills.skill_id varchar(50); nil for discovered skills (A1)
   skill_label: string;
   is_discovered: boolean;
-  ai_level: string;       // "L1" | "L2" | "L3" | "L4" | "L5"
+  ai_level: number | string; // API: portfolio_skills.ai_level integer 1-5 (A2); string form tolerated, parseLevel handles both
   ai_confidence: string;  // "high" | "medium" | "low"
   evidence: string[];
   competency_summary: string;
@@ -119,7 +119,7 @@ export interface Vacancy {
 
 export interface VacancySkill {
   id?: number;
-  skill_id?: number;
+  skill_id?: string | null; // API: vacancy_skills.skill_id varchar(50) (A1)
   skill_label: string;
   expected_level: number;
   _destroy?: boolean;
@@ -127,12 +127,16 @@ export interface VacancySkill {
 
 export type SkillComparisonResult = "match" | "gap" | "exceed" | "not_assessed";
 
+// A4: shape persisted verbatim by FitGap::Engine (api/app/services/fit_gap/engine.rb)
+// and served by PortfoliosController#fit_gap_json. Key is `expected_level`, not `required_level`.
 export interface SkillComparison {
   skill_label: string;
-  required_level: number;
-  candidate_level?: number;
+  skill_id?: string | null;
+  expected_level: number;
+  candidate_level?: number | null;
   result: SkillComparisonResult;
-  delta?: number;
+  delta?: number | null;
+  confidence?: string | null;
   is_override?: boolean;
 }
 

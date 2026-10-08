@@ -62,7 +62,10 @@ module FitGap
           expected_level:  expected_level,
           result:          result,
           delta:           delta,
-          confidence:      portfolio_skill&.dig(:confidence)
+          confidence:      portfolio_skill&.dig(:confidence),
+          # A4/D2: surface the override marker for the web pencil badge.
+          # The comparison JSON is persisted verbatim and served as-is.
+          is_override:     portfolio_skill&.dig(:overridden) || false
         }
       end
 
