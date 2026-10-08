@@ -24,7 +24,9 @@ module Api
       def resolve_scheme
         request.headers['X-Tenant-Scheme'].presence ||
           ActiveRecord::Base.connection.select_value(
-            'SELECT scheme FROM organizations LIMIT 1'
+            # Deterministic fallback; id=0 is the reserved default org (db/seeds.rb) and must never bind.
+            # ponytail: no discarded_at column exists on organizations; add a soft-delete guard if one lands.
+            'SELECT scheme FROM organizations WHERE id != 0 ORDER BY id LIMIT 1'
           ) || 'test-corp'
       end
     end
