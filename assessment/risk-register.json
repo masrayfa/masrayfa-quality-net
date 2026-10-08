@@ -11,46 +11,46 @@
   {
     "id": "B2",
     "severity": "P1",
-    "status": "open",
+    "status": "fixed",
     "owner": "engineering",
     "risk_accepted": false,
-    "summary": "save_skills is non-transactional: invalid 2nd skill leaves the 1st row persisted with portfolio generation_status=failed (partial portfolio readable)",
+    "summary": "save_skills was non-transactional: invalid 2nd skill left the 1st row persisted with portfolio generation_status=failed. Fixed in b9df924 (savepoint transaction + pre-write validation); regression lock spec/services/portfolios/generator_spec.rb",
     "file": "api/app/services/portfolios/generator.rb"
   },
   {
     "id": "A4",
     "severity": "P1",
-    "status": "open",
+    "status": "fixed",
     "owner": "engineering",
     "risk_accepted": false,
-    "summary": "Fit/gap contract drift: engine persists expected_level and never emits is_override, web reads required_level/is_override, so the Required column is always blank and the override marker can never render",
+    "summary": "Fit/gap contract drift: engine persists expected_level and never emits is_override while the web read required_level/is_override. Fixed in a5ea4ba (web types + ComparisonTable read expected_level; engine emits is_override); regression lock web/src/test/seam.test.tsx",
     "file": "api/app/services/fit_gap/engine.rb"
   },
   {
     "id": "B4",
     "severity": "P1",
-    "status": "open",
+    "status": "fixed",
     "owner": "engineering",
     "risk_accepted": false,
-    "summary": "Login fallback SELECT scheme FROM organizations LIMIT 1 has no ORDER BY and no id!=0: with the reserved id=0 org physically first it binds the reserved default org (wrong tenant on every token)",
+    "summary": "Login fallback SELECT scheme FROM organizations LIMIT 1 had no ORDER BY and no id!=0: with the reserved id=0 org physically first it bound the reserved default org. Fixed in 5f015cd (ordered fallback excluding id=0); regression lock spec/requests/auth_and_session_scoping_spec.rb",
     "file": "api/app/controllers/api/v1/authentication_controller.rb"
   },
   {
     "id": "U1",
     "severity": "P1",
-    "status": "open",
+    "status": "fixed",
     "owner": "engineering",
     "risk_accepted": false,
-    "summary": "Invalid or expired invite 404 is shown to the candidate as 'Interview Complete ... has been recorded'; candidate believes a real interview happened while assessors see nothing",
+    "summary": "Invalid or expired invite 404 was shown to the candidate as 'Interview Complete ... has been recorded'. Fixed: InterviewPage renders an invalid/expired-link state on 404 candidate_info (generic error state otherwise), never the success screen; regression lock web/src/test/interview-invite.test.tsx",
     "file": "web/src/pages/interview/InterviewPage.tsx"
   },
   {
     "id": "F2",
     "severity": "P1",
-    "status": "open",
+    "status": "fixed",
     "owner": "platform",
     "risk_accepted": false,
-    "summary": "No Sidekiq worker in the compose stack: all perform_async jobs stay queued, portfolio stuck generating, fit/gap and export unreachable in the reviewed delivery environment",
+    "summary": "No Sidekiq worker in the compose stack: all perform_async jobs stayed queued, portfolio stuck generating, fit/gap and export unreachable. Fixed: docker-compose.yml adds a worker service (same api image/env, `sidekiq -C config/sidekiq.yml`); verified it starts and drains queued jobs (evidence 29-fixes.txt)",
     "file": "docker-compose.yml"
   },
   {
@@ -58,17 +58,17 @@
     "severity": "P1",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "Tenant selection is client-controlled at login (X-Tenant-Scheme) with no user-to-org binding; any authenticated admin can mint a valid token scoped to any existing org (cross-tenant data integrity)",
+    "risk_accepted": true,
+    "summary": "Tenant selection is client-controlled at login (X-Tenant-Scheme). Minimal guard added: the requested scheme must belong to an existing, non-reserved org (id=0 rejected) or login is 400. RESIDUAL RISK ACCEPTED: the schema has no user<->org membership model (users table has no organization_id), so an authenticated admin can still mint a token for any existing org. Binding users to orgs needs a product/data-model decision (membership table) outside this fix batch; risk accepted for v1.0.0 and named for the release decision.",
     "file": "api/app/controllers/api/v1/authentication_controller.rb"
   },
   {
     "id": "ENF-1",
     "severity": "P1",
-    "status": "open",
+    "status": "fixed",
     "owner": "engineering",
     "risk_accepted": false,
-    "summary": "Confidence rules (high/medium/low from probe_count and state) are prompt-only; save_skills persists LLM output verbatim so a probe_count=1 skill can store confidence=high",
+    "summary": "Confidence rules (high/medium/low from probe_count and coverage state) were prompt-only; save_skills persisted LLM output verbatim so probe_count=1 could store confidence=high. Fixed: Generator#save_skills caps confidence against the session's coverage maps (high needs probe_count>=3 AND covered; medium probe_count==2 OR partial; else low; no map -> low; never upgrades); regression lock spec/services/portfolios/generator_spec.rb",
     "file": "api/app/services/portfolios/generator.rb"
   },
   {
@@ -76,8 +76,8 @@
     "severity": "P2",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "Fit/gap skill matching is exact-case skill_id then exact label; realistic lowercase ids silently degrade to not_assessed and hide real gaps",
+    "risk_accepted": true,
+    "summary": "Fit/gap skill matching is exact-case skill_id then exact label; realistic lowercase ids silently degrade to not_assessed and hide real gaps. Risk accepted for v1.0.0: degrades to an explicit not_assessed result (never a wrong level), out of the confirmed P0/P1 fix batch.",
     "file": "api/app/services/fit_gap/engine.rb"
   },
   {
@@ -85,8 +85,8 @@
     "severity": "P2",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "Web status union omits 'failed' and portfolio union omits the failed-shape 'error' key: a failed session renders no chip and no action",
+    "risk_accepted": true,
+    "summary": "Web status union omits 'failed' and portfolio union omits the failed-shape 'error' key: a failed session renders no chip and no action. Risk accepted for v1.0.0: cosmetic missing state, the row still renders (no false success shown).",
     "file": "web/src/types/index.ts"
   },
   {
@@ -94,8 +94,8 @@
     "severity": "P2",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "skill_id typed number vs varchar sk-eng-001; SkillCard prefixes again so badges render SK-sk-eng-001",
+    "risk_accepted": true,
+    "summary": "skill_id typed number vs varchar sk-eng-001; SkillCard prefixes again so badges render SK-sk-eng-001. Risk accepted for v1.0.0: cosmetic label prefix, no data corruption.",
     "file": "web/src/components/assessment/SkillCard.tsx"
   },
   {
@@ -103,8 +103,8 @@
     "severity": "P2",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "Wrong password on /login hits the global 401 interceptor which reloads the page already shown; error state discarded, no message ever displayed",
+    "risk_accepted": true,
+    "summary": "Wrong password on /login hits the global 401 interceptor which reloads the page already shown; error state discarded, no message ever displayed. Risk accepted for v1.0.0: login still fails closed (no bypass), only the message is lost.",
     "file": "web/src/services/api.ts"
   },
   {
@@ -112,8 +112,8 @@
     "severity": "P2",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "JWT decoded without verification as a tenant hint: protected routes still 401, but Current.organization is set from unverified claims for the rest of the request (hardening, no exploit proven)",
+    "risk_accepted": true,
+    "summary": "JWT decoded without verification as a tenant hint: protected routes still 401 and candidate routes unaffected (no bypass proven); only request-scoped Current.organization can be set from unverified claims. Risk accepted for v1.0.0 as hardening, deferred with C3b's tenant-model work.",
     "file": "api/app/middlewares/tenant_resolver_middleware.rb"
   },
   {
@@ -121,8 +121,8 @@
     "severity": "P2",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "Vacancy with zero skills makes fit/gap raise RecordInvalid (skill comparisons blank) and surface a 500 instead of an empty-but-valid report",
+    "risk_accepted": true,
+    "summary": "Vacancy with zero skills makes fit/gap raise RecordInvalid (skill comparisons blank) and surface a 500 instead of an empty-but-valid report. Risk accepted for v1.0.0: requires an empty vacancy, fails loudly (never a silent wrong result).",
     "file": "api/app/services/fit_gap/engine.rb"
   },
   {
@@ -130,8 +130,8 @@
     "severity": "P3",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "Discovered-skill line renders raw integer '3 (confirmed)' instead of 'L3'; everything else tolerates both shapes",
+    "risk_accepted": true,
+    "summary": "Discovered-skill line renders raw integer '3 (confirmed)' instead of 'L3'; everything else tolerates both shapes. Risk accepted for v1.0.0: single cosmetic render.",
     "file": "web/src/pages/fitgap/FitGapReportPage.tsx"
   },
   {
@@ -139,8 +139,8 @@
     "severity": "P3",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "Three indexes on coverage_maps.session_id (unique composite plus two redundant single-column indexes)",
+    "risk_accepted": true,
+    "summary": "Three indexes on coverage_maps.session_id (unique composite plus two redundant single-column indexes). Risk accepted for v1.0.0: storage/write hygiene only, no correctness impact.",
     "file": "api/db/schema.rb"
   },
   {
@@ -148,8 +148,8 @@
     "severity": "P3",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": ".irbrc filters discarded_at IS NULL but the column does not exist; console helper always errors and mint falls back to scheme unknown",
+    "risk_accepted": true,
+    "summary": ".irbrc filters discarded_at IS NULL but the column does not exist; console helper always errors and mint falls back to scheme unknown. Risk accepted for v1.0.0: developer-console-only helper, no runtime impact.",
     "file": "api/.irbrc"
   },
   {
@@ -157,8 +157,8 @@
     "severity": "P3",
     "status": "open",
     "owner": "engineering",
-    "risk_accepted": false,
-    "summary": "Assessment create/update returns system_prompt_generated:true synchronously while the generator runs async (and never runs without a worker); the flag is a constant, not a fact",
+    "risk_accepted": true,
+    "summary": "Assessment create/update returns system_prompt_generated:true synchronously while the generator runs async; the flag is a constant, not a fact. F2 now guarantees the job actually runs (worker service), but the flag semantics remain. Risk accepted for v1.0.0: flag mislabels timing, prompt generation itself now works.",
     "file": "api/app/controllers/api/v1/assessments_controller.rb"
   }
 ]
