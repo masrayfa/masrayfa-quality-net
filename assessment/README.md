@@ -14,6 +14,7 @@ This is a neutral portfolio piece. No company, product, client, or source-repo n
 | 4 | Release decision | [`03-release-decision.md`](03-release-decision.md) | What the release gate checked, what it found, the recommendation, the named risk owner, and what would close the accepted residual risk. |
 | 5 | Release notes | [`../RELEASE_NOTES.md`](../RELEASE_NOTES.md) | What `v1.0.0` claims to deliver: the net, the P1 fixes, the release gate itself, and the open risks accepted for the tag. |
 | 6 | Assumptions | [`assumptions.md`](assumptions.md) | The ambiguity calls made during the work, each stated with the evidence behind it. |
+| 7 | Defense notes | [`defense-notes.md`](defense-notes.md) | Live-defense prep: how AI was used and where it was corrected, key judgment calls (severity, ship/block, B3, P2/P3), red→green pointers, and anticipated CTO questions with crisp answers. Every claim traces to a repo artifact. |
 
 ## Repo artifacts (the net + the demos)
 
