@@ -1,3 +1,22 @@
+# Shared build/env for the api and worker services — they run the same image.
+x-api-build: &api-build
+  context: ./api
+  # Local/test image includes development + test gems so specs can run.
+  args:
+    BUNDLE_WITHOUT: ""
+
+x-api-env: &api-env
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: quality_net_development
+  DB_USERNAME: postgres
+  DB_PASSWORD: postgres
+  REDIS_URL: redis://redis:6379/1
+  # Local-dev-only values (not secrets): SECRET_KEY_BASE signs JWTs and
+  # ALLOWED_ORIGINS has no default — the app refuses to boot without it.
+  SECRET_KEY_BASE: dev-only-not-a-secret-change-me
+  ALLOWED_ORIGINS: "*"
+
 services:
   db:
     image: postgres:16-alpine
@@ -23,22 +42,9 @@ services:
       retries: 12
 
   api:
-    build:
-      context: ./api
-      # Local/test image includes development + test gems so specs can run.
-      args:
-        BUNDLE_WITHOUT: ""
-    environment:
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_NAME: quality_net_development
-      DB_USERNAME: postgres
-      DB_PASSWORD: postgres
-      REDIS_URL: redis://redis:6379/1
-      # Local-dev-only values (not secrets): SECRET_KEY_BASE signs JWTs and
-      # ALLOWED_ORIGINS has no default — the app refuses to boot without it.
-      SECRET_KEY_BASE: dev-only-not-a-secret-change-me
-      ALLOWED_ORIGINS: "*"
+    build: *api-build
+    image: quality-net-api
+    environment: *api-env
     depends_on:
       db:
         condition: service_healthy
@@ -46,6 +52,19 @@ services:
         condition: service_healthy
     ports:
       - "3001:3001"
+
+  # F2: Sidekiq worker. Without it every perform_async job (portfolio, fit/gap,
+  # system prompt, coverage) stays queued — portfolio stuck "generating".
+  worker:
+    build: *api-build
+    image: quality-net-api
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    environment: *api-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   pgdata:
