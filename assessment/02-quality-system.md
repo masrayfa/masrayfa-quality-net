@@ -148,3 +148,22 @@ Summarized, because a net that oversells itself is worse than no net:
 <!-- Placeholder. Part 2 of this write-up, written after the confirmed defects are fixed:
      each defect id, the red test that pins it, the fix, the green run, and the
      evidence path under .omo/evidence/. -->
+
+## B3 — coverage rule verified correct
+
+The coverage transition rules are enforced in `api/app/services/coverage/state_engine.rb`:
+- no advance past `initiated` unless `probe_count ≥ 2` (the hard gate);
+- transitions are forward-only (`not_yet → initiated → partial → covered`);
+- `covered` is terminal (no outgoing transition);
+- skip-ahead proposals walk one step at a time rather than jumping.
+
+B3 was treated as a candidate defect during planning and then empirically verified
+**correct** during defect verification (todo 8): all 9 probes passed against the live
+engine (`.omo/evidence/08-defects/index.md`, 9/9 pass; source `state_engine.rb`).
+
+The tests in `api/spec/services/coverage/state_engine_spec.rb` are therefore a
+**regression lock, not a bug fix**. They pin already-correct behavior so a later
+refactor cannot silently loosen the probe-count gate, the forward-only chain, or the
+`covered` terminal state. No product-code change was made for B3.
+
+Decision + green re-run evidence: `.omo/evidence/26-b3.txt`.
