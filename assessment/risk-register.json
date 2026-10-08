@@ -2,7 +2,7 @@
   {
     "id": "B1",
     "severity": "P1",
-    "status": "open",
+    "status": "fixed",
     "owner": "engineering",
     "risk_accepted": false,
     "summary": "audio_complete trusts the client and records end_reason=all_covered with zero coverage; unauthenticated candidate can force-end a session and trigger portfolio generation on an empty interview",

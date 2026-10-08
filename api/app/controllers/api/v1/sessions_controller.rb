@@ -121,10 +121,17 @@ module Api
 
         return json_response(ended: true, message: "Session already ended") if session.ended?
 
-        # No coverage re-check here. The backend WS already verified all_covered
-        # before sending preparing_to_end. Re-checking here caused false negatives
-        # (timing gap between WS detection and HTTP call) that stalled auto-end.
-        Sessions::EndHandler.new(session).call(reason: 'all_covered')
+        # B1 fix (plan option a): reconcile the client's "audio drained" claim with
+        # the server coverage map — the source of truth — before asserting all_covered.
+        # Previously reason='all_covered' was hardcoded here, so anyone holding the
+        # invite token could end an empty session and record it as fully covered.
+        # Unlike the naive synchronous re-check the old comment warned about, this
+        # check NEVER gates the end: when server coverage does not verify the claim,
+        # the session still ends — just with the truthful reason
+        # client_audio_complete (added to the enum in 20260506000000). Auto-end
+        # cannot stall; only the recorded reason changes.
+        reason = Coverage::MapInjector.new(session).all_covered? ? 'all_covered' : 'client_audio_complete'
+        Sessions::EndHandler.new(session).call(reason: reason)
         json_response(ended: true, message: "Session ended")
       end
 

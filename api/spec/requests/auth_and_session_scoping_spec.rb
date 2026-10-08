@@ -5,10 +5,9 @@ require 'rails_helper'
 # Request specs for auth, tenant scoping, the no-JWT candidate routes, and
 # session end.
 #
-# EXPECTED RED on current code (do NOT "fix" here — todos 24 and 27 do):
-#   B1 — POST /api/v1/sessions/:token/audio_complete hardcodes
-#        end_reason='all_covered' with no coverage check
-#        (api/app/controllers/api/v1/sessions_controller.rb:118-129).
+# B1 — fixed in todo 24 (sessions_controller#audio_complete now reconciles server
+# coverage before asserting all_covered; regression lock lives in section (a)).
+# EXPECTED RED on current code (do NOT "fix" here — todo 27 does):
 #   B4 — login tenant fallback runs `SELECT scheme FROM organizations LIMIT 1`
 #        (api/app/controllers/api/v1/authentication_controller.rb:24-29) —
 #        no ORDER BY, no id != 0 guard, so the reserved id=0 org can be bound.
@@ -80,8 +79,11 @@ RSpec.describe 'Auth, tenant scoping, candidate routes and session end', type: :
   end
 
   # ── (a) B1 — session end must not trust the client's all_covered claim ─────
+  # Todo 24 chose option (a): reconcile against server coverage before asserting
+  # all_covered; on a miss the truthful reason is client_audio_complete and the
+  # session still ends (no stall). These specs lock both branches.
 
-  describe 'B1: POST /api/v1/sessions/:token/audio_complete (expected RED)' do
+  describe 'B1: POST /api/v1/sessions/:token/audio_complete (regression lock)' do
     it 'does not record all_covered for a session with zero coverage maps' do
       org        = make_org('tenant-a')
       assessment = make_assessment(tenant_id: org.id)
@@ -93,6 +95,8 @@ RSpec.describe 'Auth, tenant scoping, candidate routes and session end', type: :
       expect(response).to have_http_status(:ok)
       expect(session.reload.end_reason).not_to eq('all_covered'),
         'audio_complete trusted the client claim and ended with all_covered despite zero coverage'
+      expect(session.end_reason).to eq('client_audio_complete'),
+        'an unverified end must be recorded truthfully as client_audio_complete'
     end
 
     it 'does not record all_covered for a session with incomplete (partial) coverage' do
@@ -106,6 +110,21 @@ RSpec.describe 'Auth, tenant scoping, candidate routes and session end', type: :
       expect(response).to have_http_status(:ok)
       expect(session.reload.end_reason).not_to eq('all_covered'),
         'audio_complete recorded all_covered while coverage was still partial'
+      expect(session.end_reason).to eq('client_audio_complete'),
+        'an unverified end must be recorded truthfully as client_audio_complete'
+    end
+
+    it 'records all_covered only when server coverage verifies the claim' do
+      org        = make_org('tenant-a')
+      assessment = make_assessment(tenant_id: org.id)
+      session    = make_session(tenant_id: org.id, assessment: assessment)
+      session.coverage_maps.create!(skill_id: 'ruby', skill_label: 'Ruby', state: 'covered', probe_count: 2)
+
+      post "/api/v1/sessions/#{session.invite_token}/audio_complete"
+
+      expect(response).to have_http_status(:ok)
+      expect(session.reload.end_reason).to eq('all_covered'),
+        'server-verified full coverage should keep the all_covered reason'
     end
   end
 
