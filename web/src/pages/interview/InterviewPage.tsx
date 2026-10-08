@@ -21,13 +21,14 @@ import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { useAudioWebSocket } from "@/hooks/useAudioWebSocket";
 import { sessionsApi } from "@/services/sessions";
 import HardwareCheck from "@/components/HardwareCheck";
-import { CheckCircle, Mic, MicOff } from "lucide-react";
+import { AlertTriangle, CheckCircle, Mic, MicOff } from "lucide-react";
 import type { CandidateInfo, InterviewState, InterviewSpeaker, TranscriptTurn } from "@/types";
 
 export default function InterviewPage() {
   const { token } = useParams<{ token: string }>();
   const [candidateInfo, setCandidateInfo] = useState<CandidateInfo | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<"not_found" | "error" | null>(null);
   const [interviewState, setInterviewState] = useState<InterviewState>("idle");
   const [speaker, setSpeaker] = useState<InterviewSpeaker>(null);
   const [transcript, setTranscript] = useState<Pick<TranscriptTurn, "speaker" | "text">[]>([]);
@@ -48,7 +49,12 @@ export default function InterviewPage() {
         setSessionId(res.data.session_id);
         if (res.data.session_status === "ended") setInterviewState("complete");
       })
-      .catch(() => setInterviewState("complete"));
+      .catch((err: unknown) => {
+        // U1: a 404 means the invite is invalid/expired — never claim the
+        // interview happened. Any other failure is an honest error state.
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        setLoadError(status === 404 ? "not_found" : "error");
+      });
   }, [token]);
 
   const muteRef = useRef<(() => void) | null>(null);
@@ -186,6 +192,23 @@ export default function InterviewPage() {
       : connectionState === "connected"
       ? "connected"
       : "reconnecting";
+
+  // ── State X: Invite cannot be loaded ────────────────────────────────────
+  if (loadError) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-3">
+        <AlertTriangle className="h-8 w-8 mx-auto text-amber-500" />
+        <h2 className="text-xl font-semibold">
+          {loadError === "not_found" ? "Link invalid or expired" : "Something went wrong"}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {loadError === "not_found"
+            ? "This interview link is invalid or has expired. Ask the hiring team to send you a new one."
+            : "We couldn't load this interview. Check your connection and refresh the page to try again."}
+        </p>
+      </div>
+    );
+  }
 
   // ── State A: Pre-start ──────────────────────────────────────────────────
   if (interviewState === "idle") {
