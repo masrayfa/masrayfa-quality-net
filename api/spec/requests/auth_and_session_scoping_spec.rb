@@ -19,6 +19,11 @@ RSpec.describe 'Auth, tenant scoping, candidate routes and session end', type: :
     Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
   end
 
+  before do
+    # Fresh throttle window per example — several examples log in repeatedly.
+    Rack::Attack.cache.store.clear
+  end
+
   # ── Fixtures ────────────────────────────────────────────────────────────────
 
   def make_org(scheme)
@@ -211,6 +216,45 @@ RSpec.describe 'Auth, tenant scoping, candidate routes and session end', type: :
       get "/api/v1/sessions/#{session.id}", headers: auth_headers(token_for(role: 'admin', scheme: 'tenant-a'))
       expect(response).to have_http_status(:ok)
       expect(json_body.dig('session', 'id')).to eq(session.id)
+    end
+  end
+
+  # ── (f) C3b — tenant scheme must exist and must not be the reserved org ────
+
+  describe 'C3b: login tenant scheme validation' do
+    def post_login(scheme)
+      post '/api/v1/auth/login',
+           params:  { email: 'admin@example.com', password: 'password123' },
+           headers: { 'X-Tenant-Scheme' => scheme }
+    end
+
+    it 'rejects a scheme that no organization owns, without minting a token' do
+      make_org('tenant-a')
+      make_admin
+
+      post_login('ghost-corp')
+
+      expect(response).to have_http_status(:bad_request)
+      expect(json_body.dig('errors', 0, 'message')).to match(/unknown tenant scheme/i)
+      expect(json_body).not_to have_key('token')
+    end
+
+    it 'rejects the reserved id=0 organization scheme even though it exists' do
+      make_reserved_org! # scheme: default-reserved
+      make_org('tenant-real')
+      make_admin
+
+      post_login('default-reserved')
+
+      expect(response).to have_http_status(:bad_request)
+      expect(json_body.dig('errors', 0, 'message')).to match(/unknown tenant scheme/i)
+    end
+
+    it 'still honors an existing, non-reserved scheme (positive control)' do
+      make_org('tenant-b')
+      make_admin
+
+      expect(login_scheme('X-Tenant-Scheme' => 'tenant-b')).to eq('tenant-b')
     end
   end
 end
