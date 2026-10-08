@@ -101,4 +101,66 @@ RSpec.describe Portfolios::Generator do
       expect(portfolio.portfolio_skills.pluck(:ai_level)).to contain_exactly(3, 4, 3)
     end
   end
+
+  # ENF-1: confidence is capped by the session's coverage evidence (PRD-01 §5):
+  #   high   — probe_count >= 3 AND state covered
+  #   medium — probe_count == 2 OR state partial
+  #   low    — anything else
+  # The LLM may never talk the server into a stronger claim than coverage
+  # supports (previously the prompt was the only enforcement).
+  describe '#call confidence enforcement (ENF-1)' do
+    def coverage_for(session, state:, probe_count:, discovered: false)
+      session.coverage_maps.create!(
+        skill_id:      discovered ? nil : 'sk-eng-001',
+        skill_label:   'React / Frontend Development',
+        is_discovered: discovered,
+        state:         state,
+        probe_count:   probe_count
+      )
+    end
+
+    def persisted_confidence(claimed:, state: nil, probe_count: nil, with_map: true)
+      session = make_session
+      coverage_for(session, state: state, probe_count: probe_count) if with_map
+      response = { 'configured_skills' => [valid_skill.merge('confidence' => claimed)] }
+
+      error = run_generator(session, response)
+      expect(error).to be_nil, "generator raised: #{error&.message}"
+      session.reload.portfolio.portfolio_skills.find_by!(skill_label: 'React / Frontend Development').ai_confidence
+    end
+
+    it 'caps a claimed high to low when the skill has no coverage map' do
+      expect(persisted_confidence(claimed: 'high', with_map: false)).to eq('low')
+    end
+
+    it 'caps a claimed high to low at probe_count 1 / initiated' do
+      expect(persisted_confidence(claimed: 'high', state: 'initiated', probe_count: 1)).to eq('low')
+    end
+
+    it 'caps a claimed high to medium at probe_count 2 / partial' do
+      expect(persisted_confidence(claimed: 'high', state: 'partial', probe_count: 2)).to eq('medium')
+    end
+
+    it 'keeps high when coverage is covered with probe_count >= 3' do
+      expect(persisted_confidence(claimed: 'high', state: 'covered', probe_count: 3)).to eq('high')
+    end
+
+    it 'never upgrades a conservative claim' do
+      expect(persisted_confidence(claimed: 'low', state: 'covered', probe_count: 5)).to eq('low')
+    end
+
+    it 'matches discovered skills by label and applies the same cap' do
+      session = make_session
+      coverage_for(session, state: 'partial', probe_count: 2, discovered: true)
+      response = {
+        'discovered_skills' => [valid_skill.merge('skill_id' => nil, 'confidence' => 'high')]
+      }
+
+      error = run_generator(session, response)
+
+      expect(error).to be_nil
+      skill = session.reload.portfolio.portfolio_skills.find_by!(skill_label: 'React / Frontend Development')
+      expect(skill.ai_confidence).to eq('medium')
+    end
+  end
 end

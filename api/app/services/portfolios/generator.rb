@@ -149,6 +149,7 @@ module Portfolios
 
     def save_skills(portfolio, response)
       data = response.is_a?(Hash) ? response : JSON.parse(response)
+      @coverage_maps = @session.coverage_maps.to_a
 
       # B2: all-or-nothing. A malformed later skill must not leave earlier
       # rows behind on a portfolio that ends up failed. requires_new: true so
@@ -168,6 +169,47 @@ module Portfolios
       end
     end
 
+    # ENF-1: confidence is capped by the session's coverage evidence
+    # (PRD-01 §5). The LLM may claim at most what coverage supports; the
+    # server never persists a stronger claim (and never upgrades one).
+    CONFIDENCE_RANK = { 'low' => 0, 'medium' => 1, 'high' => 2 }.freeze
+
+    def enforce_confidence(skill_data, claimed, discovered:)
+      allowed = allowed_confidence(coverage_map_for(skill_data, discovered:))
+      return claimed if CONFIDENCE_RANK[claimed] <= CONFIDENCE_RANK[allowed]
+
+      Rails.logger.warn(
+        "[N10] confidence #{claimed.inspect} capped to #{allowed.inspect} for " \
+        "#{skill_data['skill_label'].inspect}: coverage does not support the claim"
+      )
+      allowed
+    end
+
+    # high   — probe_count >= 3 AND state covered
+    # medium — probe_count == 2 OR state partial
+    # low    — everything else (including no coverage map at all)
+    def allowed_confidence(map)
+      return 'low' if map.nil?
+      return 'high' if map.state == 'covered' && map.probe_count.to_i >= 3
+      return 'medium' if map.state == 'partial' || map.probe_count.to_i == 2
+
+      'low'
+    end
+
+    def coverage_map_for(skill_data, discovered:)
+      if discovered
+        @coverage_maps.find do |m|
+          m.is_discovered && m.skill_label.to_s.casecmp?(skill_data['skill_label'].to_s)
+        end
+      else
+        @coverage_maps.find do |m|
+          !m.is_discovered && m.skill_id.present? && m.skill_id == skill_data['skill_id']
+        end || @coverage_maps.find do |m|
+          !m.is_discovered && m.skill_label.to_s.casecmp?(skill_data['skill_label'].to_s)
+        end
+      end
+    end
+
     # Validates BEFORE writing: an out-of-range level is rejected (never
     # clamped into a wrong value) and confidence must be a known level.
     def persist_skill!(portfolio, skill_data, discovered:)
@@ -179,6 +221,8 @@ module Portfolios
               "invalid portfolio skill #{skill_data['skill_label'].inspect}: " \
               "level=#{skill_data['level'].inspect} confidence=#{confidence.inspect}"
       end
+
+      confidence = enforce_confidence(skill_data, confidence, discovered:)
 
       # NOTE: create through the class, not portfolio.portfolio_skills.create!.
       # The association target caches the new record; if this transaction rolls
