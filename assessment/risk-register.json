@@ -1,0 +1,164 @@
+[
+  {
+    "id": "B1",
+    "severity": "P1",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "audio_complete trusts the client and records end_reason=all_covered with zero coverage; unauthenticated candidate can force-end a session and trigger portfolio generation on an empty interview",
+    "file": "api/app/controllers/api/v1/sessions_controller.rb"
+  },
+  {
+    "id": "B2",
+    "severity": "P1",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "save_skills is non-transactional: invalid 2nd skill leaves the 1st row persisted with portfolio generation_status=failed (partial portfolio readable)",
+    "file": "api/app/services/portfolios/generator.rb"
+  },
+  {
+    "id": "A4",
+    "severity": "P1",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Fit/gap contract drift: engine persists expected_level and never emits is_override, web reads required_level/is_override, so the Required column is always blank and the override marker can never render",
+    "file": "api/app/services/fit_gap/engine.rb"
+  },
+  {
+    "id": "B4",
+    "severity": "P1",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Login fallback SELECT scheme FROM organizations LIMIT 1 has no ORDER BY and no id!=0: with the reserved id=0 org physically first it binds the reserved default org (wrong tenant on every token)",
+    "file": "api/app/controllers/api/v1/authentication_controller.rb"
+  },
+  {
+    "id": "U1",
+    "severity": "P1",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Invalid or expired invite 404 is shown to the candidate as 'Interview Complete ... has been recorded'; candidate believes a real interview happened while assessors see nothing",
+    "file": "web/src/pages/interview/InterviewPage.tsx"
+  },
+  {
+    "id": "F2",
+    "severity": "P1",
+    "status": "open",
+    "owner": "platform",
+    "risk_accepted": false,
+    "summary": "No Sidekiq worker in the compose stack: all perform_async jobs stay queued, portfolio stuck generating, fit/gap and export unreachable in the reviewed delivery environment",
+    "file": "docker-compose.yml"
+  },
+  {
+    "id": "C3b",
+    "severity": "P1",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Tenant selection is client-controlled at login (X-Tenant-Scheme) with no user-to-org binding; any authenticated admin can mint a valid token scoped to any existing org (cross-tenant data integrity)",
+    "file": "api/app/controllers/api/v1/authentication_controller.rb"
+  },
+  {
+    "id": "ENF-1",
+    "severity": "P1",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Confidence rules (high/medium/low from probe_count and state) are prompt-only; save_skills persists LLM output verbatim so a probe_count=1 skill can store confidence=high",
+    "file": "api/app/services/portfolios/generator.rb"
+  },
+  {
+    "id": "B5",
+    "severity": "P2",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Fit/gap skill matching is exact-case skill_id then exact label; realistic lowercase ids silently degrade to not_assessed and hide real gaps",
+    "file": "api/app/services/fit_gap/engine.rb"
+  },
+  {
+    "id": "A3",
+    "severity": "P2",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Web status union omits 'failed' and portfolio union omits the failed-shape 'error' key: a failed session renders no chip and no action",
+    "file": "web/src/types/index.ts"
+  },
+  {
+    "id": "A1",
+    "severity": "P2",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "skill_id typed number vs varchar sk-eng-001; SkillCard prefixes again so badges render SK-sk-eng-001",
+    "file": "web/src/components/assessment/SkillCard.tsx"
+  },
+  {
+    "id": "U3",
+    "severity": "P2",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Wrong password on /login hits the global 401 interceptor which reloads the page already shown; error state discarded, no message ever displayed",
+    "file": "web/src/services/api.ts"
+  },
+  {
+    "id": "C2",
+    "severity": "P2",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "JWT decoded without verification as a tenant hint: protected routes still 401, but Current.organization is set from unverified claims for the rest of the request (hardening, no exploit proven)",
+    "file": "api/app/middlewares/tenant_resolver_middleware.rb"
+  },
+  {
+    "id": "EDGE-1",
+    "severity": "P2",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Vacancy with zero skills makes fit/gap raise RecordInvalid (skill comparisons blank) and surface a 500 instead of an empty-but-valid report",
+    "file": "api/app/services/fit_gap/engine.rb"
+  },
+  {
+    "id": "A2",
+    "severity": "P3",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Discovered-skill line renders raw integer '3 (confirmed)' instead of 'L3'; everything else tolerates both shapes",
+    "file": "web/src/pages/fitgap/FitGapReportPage.tsx"
+  },
+  {
+    "id": "B7",
+    "severity": "P3",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Three indexes on coverage_maps.session_id (unique composite plus two redundant single-column indexes)",
+    "file": "api/db/schema.rb"
+  },
+  {
+    "id": "B8",
+    "severity": "P3",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": ".irbrc filters discarded_at IS NULL but the column does not exist; console helper always errors and mint falls back to scheme unknown",
+    "file": "api/.irbrc"
+  },
+  {
+    "id": "ASYNC-1",
+    "severity": "P3",
+    "status": "open",
+    "owner": "engineering",
+    "risk_accepted": false,
+    "summary": "Assessment create/update returns system_prompt_generated:true synchronously while the generator runs async (and never runs without a worker); the flag is a constant, not a fact",
+    "file": "api/app/controllers/api/v1/assessments_controller.rb"
+  }
+]
