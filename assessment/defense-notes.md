@@ -10,7 +10,7 @@ The work was executed by an AI coding agent against a de-linked public copy of a
 
 ### 1a. Bootstrap DB-schema rename
 
-The source code carried a product-flavored PostgreSQL schema name and index names. Scrubbing them was not cosmetic: a clean de-link required renaming the schema (`ai_interview` → `interview`) and the two matching migration files (`create_ai_interview_schema.rb` → `create_interview_schema.rb`, `create_ai_interview_users.rb` → `create_interview_users.rb`), plus the DB names used in seeds and Docker. The rename is visible in the initial-import commit on `main` and in `api/db/schema.rb` today (schema `interview`, table `interview.users`).
+The source code carried a product-flavored PostgreSQL schema name and index names. Scrubbing them was not cosmetic: a clean de-link required renaming the schema to `interview` and the two matching migration files to `create_interview_schema.rb` and `create_interview_users.rb`, plus the DB names used in seeds and Docker. The rename is visible in the initial-import commit on `main` and in `api/db/schema.rb` today (schema `interview`, table `interview.users`).
 
 **Artifact:** initial import commit; `api/db/schema.rb`; `api/db/migrate/20240101000000_create_interview_schema.rb`.
 
