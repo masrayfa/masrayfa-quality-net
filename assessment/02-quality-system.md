@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-08
 **Scope:** the CI net built for this repo (`api/` + `web/`) and what it does and does not guard
-**Part:** 1 of 2. This document describes the net as built. The red-to-green story is in the next section placeholder below and is written once the fixes land.
+**Part:** 1 of 2. Part 2, the red-to-green story, is the "Red-to-green" section below, written after the P0/P1 fixes landed.
 
 This is a neutral portfolio piece. No client, product, or source-repo names appear here.
 
@@ -140,14 +140,217 @@ Summarized, because a net that oversells itself is worse than no net:
 
 - The PR gate's test check is presence-only. It cannot judge test quality.
 - The web seam tests mock the API. They catch shape drift when someone updates the consumer or the mocked shape, not when the API silently changes at runtime.
-- Several confirmed defects (notably the generator's non-transactional save, B2) have no committed red test yet at this baseline. They are in the risk register; their red arrives with their fix.
 - The release gate does not exist in this document's commit; it is specified in Task 4 and depends on `assessment/risk-register.json` remaining in-repo and up to date.
 
 ## Red-to-green
 
-<!-- Placeholder. Part 2 of this write-up, written after the confirmed defects are fixed:
-     each defect id, the red test that pins it, the fix, the green run, and the
-     evidence path under .omo/evidence/. -->
+The net was built to fail on known defects before any fix landed. The red baseline is CI run `37724650019` on commit `3aa639d` (push to main): the api job failed with `33 examples, 3 failures` and the web job failed with `3 failed | 1 passed`. Every failure was an assertion failure inside an example, not a boot or collection error (proof and per-test defect map in `.omo/evidence/21-net-red.txt`).
+
+The baseline red set, by defect id:
+
+- **Red in the baseline run:** B1, B4, A4, A2, U7
+- **Red via its own test+fix pair (not in the baseline run):** B2 (the plan put its red test with its fix)
+- **Found by live probe, red test written with the fix:** U1, ENF-1, C3b
+- **Delivery-stack defect, no test-net red:** F2
+- **Verified correct, regression lock only:** B3 (see the section below this one)
+
+What follows is each defect: what was red (test name), what changed (commit), what is green now. All evidence lives under `.omo/evidence/`.
+
+### Fixed defects
+
+#### B1, P1: `audio_complete` trusted the client's `all_covered` claim
+
+**Red.** `api/spec/requests/auth_and_session_scoping_spec.rb`, two examples in CI run `37724650019` (lines 85 and 98 at that commit):
+
+- "B1: POST /api/v1/sessions/:token/audio_complete (expected RED) does not record all_covered for a session with zero coverage maps"
+- "B1: ... does not record all_covered for a session with incomplete (partial) coverage"
+
+Both asserted `end_reason` must not be `all_covered`; the server recorded `all_covered` anyway (zero and partial coverage maps). Cause: `sessions_controller.rb` passed the reason straight through with no coverage read.
+
+**Changed.** Commit `f778043` `fix(api): never assert all_covered without verification`. `audio_complete` now reconciles the client claim against the server coverage map (`Coverage::MapInjector#all_covered?`) before asserting `all_covered`. When coverage does not verify, the session still ends (no stall, the failure mode the old source comment warned about) but records the truthful reason `client_audio_complete`, added to the PG enum and `Session::END_REASONS`. The red specs were rewritten as strict regression locks plus a positive control.
+
+**Green now.** B1 examples: `3 examples, 0 failures` (zero coverage and partial coverage both record `client_audio_complete`; fully covered records `all_covered`). Evidence: `.omo/evidence/24-fix-b1.txt`.
+
+#### B2, P1: portfolio skill save was non-transactional
+
+**Red.** No B2 example existed in the baseline CI run; the plan landed its red test with the fix (base `f778043`, red commit `2750114` `test(api): B2 portfolio persistence rollback (expected red)`). Failing examples in `api/spec/services/portfolios/generator_spec.rb`:
+
+- "rolls back and leaves the portfolio failed when the 2nd skill confidence is invalid" (expected zero skill rows, found 1 orphan row)
+- "rolls back and leaves the portfolio failed when the 2nd skill level is out of range" (generator must raise)
+
+The invalid skill was deliberately second in the payload so the pre-fix code inserted the first row before raising. Cause: `portfolios/generator.rb#save_skills` wrote each skill with an independent `create!`, and silently clamped out-of-range levels into wrong-but-valid values.
+
+**Changed.** Commit `b9df924` `fix(api): transactional portfolio persistence`. All skill writes run in `portfolio.transaction(requires_new: true)`. `persist_skill!` validates before writing (level must be an integer in 1..5, confidence must be in `high|medium|low`) and raises otherwise. A second root cause surfaced while making the spec green: records created through `portfolio.portfolio_skills.create!` stay in the association target and get autosaved back after a savepoint rollback; the fix creates through `PortfolioSkill.create!` so the rollback cannot replay.
+
+**Green now.** `generator_spec.rb`: `3 examples, 0 failures` (invalid second confidence and out-of-range second level both raise, portfolio `failed`, zero rows; valid payload persists 3 rows). Evidence: `.omo/evidence/25-fix-b2.txt`.
+
+#### B4, P1-conditional: login tenant fallback bound the reserved org
+
+**Red.** `api/spec/requests/auth_and_session_scoping_spec.rb`, CI run `37724650019` (line 115 at that commit):
+
+- "B4: POST /api/v1/auth/login tenant fallback (expected RED) never binds the reserved id=0 org and is deterministic with >= 2 orgs present"
+
+With the reserved id=0 org inserted first, fallback bound scheme `default-reserved`. Cause: `authentication_controller.rb#resolve_scheme` ran `SELECT scheme FROM organizations LIMIT 1` with no `ORDER BY` and no id guard.
+
+**Changed.** Commit `5f015cd` `fix(api): deterministic tenant scheme resolution`. Fallback is now `SELECT scheme FROM organizations WHERE id != 0 ORDER BY id LIMIT 1`. An explicit `X-Tenant-Scheme` header still wins; with only the reserved org present, login fails cleanly to a fallback scheme.
+
+**Green now.** B4 examples: `2 examples, 0 failures` (deterministic with >= 2 orgs, never binds id=0; explicit header still wins). The test was not weakened. Full api suite after this fix: `37 examples, 0 failures`. Evidence: `.omo/evidence/27-fix-b4.txt`.
+
+#### A4, P1: fit/gap contract drift (`expected_level` vs `required_level`)
+
+**Red.** `web/src/test/seam.test.tsx`, CI run `37724650019` (line 70):
+
+- "A4 — fit/gap comparison contract (API shape vs web consumer) > renders the Required column from the API's expected_level key"
+
+Expected `L3`, received `""`. The API engine persisted `expected_level` and never emitted `is_override`; the web `ComparisonTable` read `required_level` / `is_override`, so `LEVEL_LABELS[undefined]` rendered blank.
+
+**Changed.** Commit `a5ea4ba` `fix(web): align api contract types and consumers`. `ComparisonTable` reads `expected_level`; `web/src/types/index.ts` updated to the real persisted shape; `fit_gap/engine.rb` now emits an `is_override` marker alongside one key, with a comment pinning the contract.
+
+**Green now.** Seam suite green in the same commit (`web/src/test/seam.test.tsx`, Required cell renders `L3`). Evidence: `.omo/evidence/28-fix-seam.txt`.
+
+#### A2, P3 confirmed: discovered-skill line rendered a raw integer
+
+**Red.** `web/src/test/seam.test.tsx`, CI run `37724650019` (line 117):
+
+- "Portfolio/fit-gap consumer — portfolio skill levels from the real API > renders a discovered skill's integer ai_level as an L-label"
+
+Expected `/L3/`, received raw `"3 (confirmed)"`. The API serializes `ai_level` as an integer; `FitGapReportPage` rendered it raw.
+
+**Changed.** Same commit `a5ea4ba`. The page now renders through `parseLevel` / `LEVEL_LABELS`, and `ai_level` is typed `number | string` so both shapes compile and render as an L-label.
+
+**Green now.** The pinned seam test passes (`L3` found). Note: `assessment/risk-register.json` still lists A2 as `open` with `risk_accepted: true` (P3, cosmetic). The test path is fixed; the register entry was left open in the todo-29 catch-up. Both facts are recorded, neither is hidden.
+
+#### A1, P2: `skill_id` type drift (no red available)
+
+**Red.** No red test. A1 was a static finding (API `skill_id` is varchar like `sk-eng-001`; the web type claimed number and `SkillCard` prefixed `SK-` again, so badges rendered `SK-sk-eng-001`). It never produced an assertion failure in the baseline.
+
+**Changed.** Types and `SkillCard` were aligned in `a5ea4ba` (varchar `skill_id`, no double prefix). There is no red-to-green story here because no red test ever existed; the change is cosmetic and unguarded by the net.
+
+**Green now.** No test pins A1. The register keeps A1 `open` + `risk_accepted: true` (P2, cosmetic label prefix, no data corruption).
+
+#### A3, P2: status/portfolio union drift (not fixed)
+
+No red test, no fix. The web status union omits `failed` and the portfolio union omits the failed-shape `error` key, so a failed session renders no chip and no action. Register: `open` + `risk_accepted: true` (cosmetic missing state; the row still renders and no false success is shown). Listed again under "Not covered / not fixed".
+
+#### U1, P1: invalid invite shown as "Interview Complete"
+
+**Red.** `web/src/test/interview-invite.test.tsx`, red-first run captured in `.omo/evidence/29-fixes.txt` before the fix commit:
+
+- "shows an expired-link state on a 404 candidate_info, not the success screen" (rendered DOM was `✅ Interview Complete / Thank you. The interview has been recorded.`)
+- "shows an error state (not success) when candidate_info fails for another reason" (same success screen)
+
+**Changed.** Commit `aca738e` `fix(web): show expired state for invalid interview invites`. `InterviewPage` keeps a `loadError` state: 404 renders "Link invalid or expired", any other failure renders "We couldn't load this interview", and the success screen only appears for a real `session_status === "ended"`. The Vitest harness also shims a broken global `localStorage` in this shell (CI unaffected).
+
+**Green now.** `interview-invite.test.tsx`: `2 passed`. Full web suite after all fixes: `6 passed`. Register: U1 `fixed`. Evidence: `.omo/evidence/29-fixes.txt`.
+
+#### ENF-1, P1: confidence rules were prompt-only
+
+**Red.** `api/spec/services/portfolios/generator_spec.rb`, red-first run in `.omo/evidence/29-fixes.txt`:
+
+- "caps a claimed high to low when the skill has no coverage map" (expected `low`, got `high`)
+- "caps a claimed high to low at probe_count 1 / initiated" (expected `low`, got `high`)
+- "caps a claimed high to medium at probe_count 2 / partial" (expected `medium`, got `high`)
+- "matches discovered skills by label and applies the same cap" (expected `medium`, got `high`)
+
+The LLM confidence claim was persisted verbatim, so `probe_count=1` could store `confidence=high`.
+
+**Changed.** Commit `0a97048` `fix(api): enforce confidence against coverage evidence`. `Portfolios::Generator#save_skills` caps the claim against the session's coverage maps: `high` needs `probe_count >= 3` AND `covered`; `medium` needs `probe_count == 2` OR `partial`; anything else (including no coverage map) is `low`; the cap never upgrades a conservative claim. Matching is by `skill_id` then label for configured skills and by label (case-insensitive) for discovered skills.
+
+**Green now.** Targeted files `22 examples, 0 failures`. Full api suite: `46 examples, 0 failures`. Register: ENF-1 `fixed`. Evidence: `.omo/evidence/29-fixes.txt`.
+
+#### C3b, P1: client-controlled tenant scheme (partial fix, residual accepted)
+
+**Red.** Same generator/auth spec batch in `.omo/evidence/29-fixes.txt`:
+
+- "rejects a scheme that no organization owns, without minting a token" (expected `400`, got `200`)
+- "rejects the reserved id=0 organization scheme even though it exists" (expected `400`, got `200`)
+
+An attacker-controlled `X-Tenant-Scheme` minted a token for any scheme string, including the reserved org's.
+
+**Changed.** Commit `574e5ec` `fix(api): validate login tenant scheme`. An explicit `X-Tenant-Scheme` must name an existing, non-reserved org (`Organization.where.not(id: 0).where(scheme:)`), otherwise login is `400 Unknown tenant scheme`. The deterministic B4 fallback is unchanged.
+
+**Green now.** Both rejection examples pass; targeted files `22 examples, 0 failures`. **Residual risk accepted:** the schema has no user-to-org membership model (`users` has no `organization_id`), so an authenticated admin can still mint a token for any *existing* org. Binding users to orgs needs a product/data-model decision and was not invented here. Register: C3b stays `open` with `risk_accepted: true` and the rationale in `summary`. Evidence: `.omo/evidence/29-fixes.txt`.
+
+#### F2, P1: no Sidekiq worker in the delivery stack (delivery fix)
+
+**Red.** None in the test net. F2 was found by live probe (`.omo/evidence/08-defects`): `docker-compose.yml` had only api, db, and redis, so every `perform_async` job stayed queued (`default:2` / `portfolio:2`), portfolios sat `generating` forever, and fit/gap and export were unreachable. No RSpec or Vitest example could catch a missing process; this was an environment defect, not a code-path defect.
+
+**Changed.** Commit `86721ec` `fix: add sidekiq worker service to compose`. `docker-compose.yml` adds a `worker` service using the same api image and env (`bundle exec sidekiq -C config/sidekiq.yml`), with shared YAML anchors (`x-api-build`, `x-api-env`) so api and worker cannot drift.
+
+**Green now.** Verified live, not by unit test: worker boots (`Sidekiq 7.3.10 connecting to Redis`), enqueued `PortfolioGeneratorWorker` jobs execute (`INFO: start` ... `INFO: done`), and the pre-existing stale queue drains on startup (sessions not-found are skipped; one session ran and failed with `KeyError: GEMINI_API_KEY`, which is expected in an environment with no Gemini key). Real portfolio generation still needs a `GEMINI_API_KEY`; automated tests inject a fake client (decision unchanged since todo 7). Register: F2 `fixed`. Evidence: `.omo/evidence/29-fixes.txt`.
+
+#### C2, P2: unverified JWT decode as tenant hint (not fixed)
+
+No red test. C2 was a live-probe finding: `JsonWebToken.decode_without_verification` feeds the tenant resolver. Protected routes still 401 without a valid token and candidate routes are unaffected, so no auth bypass was proven; only request-scoped `Current.organization` can be set from unverified claims. Register: `open` + `risk_accepted: true` as hardening, deferred with C3b's tenant-model work. Listed again under "Not covered / not fixed".
+
+#### B3, candidate defect: coverage rule verified correct (not a defect)
+
+Not red, not fixed, because there was nothing to fix. All 9 probes of `coverage/state_engine.rb` passed against the live engine during defect verification (`.omo/evidence/08-defects/index.md`, 9/9). The specs in `api/spec/services/coverage/state_engine_spec.rb` are a regression lock on already-correct behavior: probe-count gate, forward-only chain, `covered` terminal, one-step walk. Decision commit `680671a` `docs(assessment): B3 coverage rule verified correct`; evidence `.omo/evidence/26-b3.txt`. The full write-up is the section below.
+
+### Not covered / not fixed
+
+Everything below is in `assessment/risk-register.json` with `status: open` and `risk_accepted: true`, or is outside the net entirely. The release gate reads that register, so none of this is hidden behind a green build.
+
+**P2, risk-accepted (not fixed):**
+
+| Id | What | Why accepted |
+|---|---|---|
+| B5 | Fit/gap matching is exact-case `skill_id` then exact label; lowercase ids degrade to `not_assessed` | Degrades to an explicit `not_assessed`, never a wrong level |
+| A3 | Web status union omits `failed`; portfolio union omits the failed-shape `error` key | Cosmetic missing state; no false success shown |
+| A1 | `skill_id` type drift (types aligned in `a5ea4ba`, but no red test pins it) | Cosmetic label prefix; no data corruption |
+| U3 | Wrong password on `/login` hits the global 401 interceptor and reloads the page, swallowing the error message | Login still fails closed; only the message is lost |
+| C2 | JWT decoded without verification as a tenant hint | No bypass proven; hardening deferred with C3b |
+| EDGE-1 | Vacancy with zero skills makes fit/gap raise and surfaces a 500 | Requires an empty vacancy; fails loudly, never a silent wrong result |
+
+**P3, risk-accepted (not fixed):**
+
+| Id | What | Why accepted |
+|---|---|---|
+| A2 | Register keeps A2 open even though the seam test path was fixed in `a5ea4ba` | Cosmetic; test green, register entry conservative |
+| B7 | Three indexes on `coverage_maps.session_id` | Storage/write hygiene only |
+| B8 | `.irbrc` filters a nonexistent `discarded_at` column | Developer-console helper only; no runtime impact |
+| ASYNC-1 | `system_prompt_generated:true` returned synchronously while the generator runs async | F2 now guarantees the job runs; the flag still mislabels timing |
+
+**P1, residual accepted (partial fix):**
+
+| Id | What | Why accepted |
+|---|---|---|
+| C3b | No user-to-org membership model; an admin can still mint a token for any existing org | Needs a product/data-model decision; minimal 400 guard shipped; named for the release decision |
+
+**Not in the net at all:**
+
+- Browser end-to-end smoke (Playwright) was deliberately omitted (time-boxed decision, todo 17). The web tests mock the service layer; they prove component behavior given a payload shape, not that a deployed API emits it. A manual-equivalent path is the golden-path smoke (todo 7 / final wave F3), not an automated browser test.
+- Performance, load, and security probing beyond the auth/tenant specs.
+- Any path not named in the specs above. A new risk does not block a release unless it is added to `assessment/risk-register.json`.
+
+### Final full-suite results (red to green)
+
+Same commands, same databases, red baseline versus current HEAD:
+
+| | Red baseline (run `37724650019`, `3aa639d`) | Current (HEAD `1c135aa`, 2026-10-08) |
+|---|---|---|
+| api, `docker compose run --rm -e RAILS_ENV=test api bundle exec rspec` | `33 examples, 3 failures` (B1 x2, B4) | `46 examples, 0 failures`, exit 0 |
+| web, `npm run test -- --run` | `3 failed \| 1 passed` (A4, A2, U7) | `Test Files 3 passed (3)`, `Tests 6 passed (6)`, exit 0 |
+| web, `npm run build` | skipped (test job short-circuits on red) | `tsc && vite build` exit 0, 1842 modules |
+
+The api suite grew from 33 to 46 examples because the fix batch added regression locks (B1 strict reasons, B2 rollback, B4 deterministic fallback, ENF-1 confidence caps, C3b scheme validation). The web suite grew from 4 to 6 examples (U1 invite error states). No check was deleted or weakened to reach green; the B4 spec in particular asserts the same thing before and after its fix (`.omo/evidence/27-fix-b4.txt`: "Test unchanged (not weakened)").
+
+Traceability, red test to fix commit to green evidence:
+
+| Defect | Red test | Fix commit | Green evidence |
+|---|---|---|---|
+| B1 | `auth_and_session_scoping_spec.rb` x2 (zero + partial coverage) | `f778043` | `.omo/evidence/24-fix-b1.txt` |
+| B2 | `generator_spec.rb` x2 (invalid 2nd skill) | `2750114` (red test), `b9df924` (fix) | `.omo/evidence/25-fix-b2.txt` |
+| B4 | `auth_and_session_scoping_spec.rb` (reserved id=0) | `5f015cd` | `.omo/evidence/27-fix-b4.txt` |
+| A4 | `seam.test.tsx` (Required column blank) | `a5ea4ba` | `.omo/evidence/28-fix-seam.txt` |
+| A2 | `seam.test.tsx` (raw integer level) | `a5ea4ba` | `.omo/evidence/28-fix-seam.txt` |
+| U1 | `interview-invite.test.tsx` x2 (false success) | `aca738e` | `.omo/evidence/29-fixes.txt` |
+| ENF-1 | `generator_spec.rb` x4 (confidence caps) | `0a97048` | `.omo/evidence/29-fixes.txt` |
+| C3b | auth specs x2 (scheme rejection) | `574e5ec` | `.omo/evidence/29-fixes.txt` |
+| F2 | none (live probe) | `86721ec` | `.omo/evidence/29-fixes.txt` (worker boot + drain) |
+| B3 | n/a (verified correct) | `680671a` (decision doc) | `.omo/evidence/26-b3.txt` |
+
+Red baseline evidence: `.omo/evidence/21-net-red.txt`. This section's own evidence: `.omo/evidence/30-red-to-green.txt`.
 
 ## B3 — coverage rule verified correct
 
