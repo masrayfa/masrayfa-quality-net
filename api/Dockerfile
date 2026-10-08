@@ -1,5 +1,8 @@
 FROM ruby:3.3.2 AS builder
 
+# Default image stays production-shaped; local/test builds pass BUNDLE_WITHOUT="".
+ARG BUNDLE_WITHOUT="development test"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
   build-essential \
   git \
@@ -11,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /interview
 
 COPY Gemfile Gemfile.lock ./
-RUN bundle config set --local without 'development test' && \
+RUN if [ -n "$BUNDLE_WITHOUT" ]; then bundle config set --local without "$BUNDLE_WITHOUT"; else bundle config unset --local without; fi && \
     bundle install --deployment --frozen --jobs 4
 
 COPY . .

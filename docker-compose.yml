@@ -23,7 +23,11 @@ services:
       retries: 12
 
   api:
-    build: ./api
+    build:
+      context: ./api
+      # Local/test image includes development + test gems so specs can run.
+      args:
+        BUNDLE_WITHOUT: ""
     environment:
       DB_HOST: db
       DB_PORT: "5432"
