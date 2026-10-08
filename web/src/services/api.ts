@@ -18,7 +18,14 @@ api.interceptors.request.use((config) => {
 });
 
 // Unwrap backend envelope: { data: { ... } } → { ... }
-// On 401/403, clear stored credentials and redirect to login.
+// On 401/403 outside the login page, clear stored credentials and redirect to login.
+// U3 (assessment/01-audit.md): a 401/403 while already ON /login is a failed
+// login, not a dead session — bouncing would reload the page and wipe the
+// error state before the user ever sees it.
+export function shouldClearAndRedirect(status: number | undefined, pathname: string): boolean {
+  return (status === 401 || status === 403) && pathname !== "/login";
+}
+
 api.interceptors.response.use(
   (response) => {
     if (response.data && typeof response.data === "object" && "data" in response.data) {
@@ -27,7 +34,7 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
+    if (shouldClearAndRedirect(error.response?.status, window.location.pathname)) {
       clearToken();
       window.location.href = "/login";
     }
