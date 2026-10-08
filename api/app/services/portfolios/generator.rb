@@ -150,32 +150,50 @@ module Portfolios
     def save_skills(portfolio, response)
       data = response.is_a?(Hash) ? response : JSON.parse(response)
 
-      # Destroy existing skills (idempotent regeneration)
-      portfolio.portfolio_skills.destroy_all
+      # B2: all-or-nothing. A malformed later skill must not leave earlier
+      # rows behind on a portfolio that ends up failed. requires_new: true so
+      # the unit gets a SAVEPOINT (and honest rollback) even when an outer
+      # transaction already exists (e.g. the specs' DatabaseCleaner wrapper).
+      portfolio.transaction(requires_new: true) do
+        # Destroy existing skills (idempotent regeneration)
+        portfolio.portfolio_skills.destroy_all
 
-      (data['configured_skills'] || []).each do |skill_data|
-        portfolio.portfolio_skills.create!(
-          skill_id:           skill_data['skill_id'],
-          skill_label:        skill_data['skill_label'],
-          is_discovered:      false,
-          ai_level:           skill_data['level'].to_i.clamp(1, 5),
-          ai_confidence:      skill_data['confidence'],
-          evidence:           Array(skill_data['evidence']).first(3),
-          competency_summary: skill_data['competency_summary']
-        )
+        (data['configured_skills'] || []).each do |skill_data|
+          persist_skill!(portfolio, skill_data, discovered: false)
+        end
+
+        (data['discovered_skills'] || []).each do |skill_data|
+          persist_skill!(portfolio, skill_data, discovered: true)
+        end
+      end
+    end
+
+    # Validates BEFORE writing: an out-of-range level is rejected (never
+    # clamped into a wrong value) and confidence must be a known level.
+    def persist_skill!(portfolio, skill_data, discovered:)
+      level      = Integer(skill_data['level'], exception: false)
+      confidence = skill_data['confidence']
+
+      unless level&.between?(1, 5) && PortfolioSkill::CONFIDENCE_LEVELS.include?(confidence)
+        raise ArgumentError,
+              "invalid portfolio skill #{skill_data['skill_label'].inspect}: " \
+              "level=#{skill_data['level'].inspect} confidence=#{confidence.inspect}"
       end
 
-      (data['discovered_skills'] || []).each do |skill_data|
-        portfolio.portfolio_skills.create!(
-          skill_id:           nil,
-          skill_label:        skill_data['skill_label'],
-          is_discovered:      true,
-          ai_level:           skill_data['level'].to_i.clamp(1, 5),
-          ai_confidence:      skill_data['confidence'],
-          evidence:           Array(skill_data['evidence']).first(3),
-          competency_summary: skill_data['competency_summary']
-        )
-      end
+      # NOTE: create through the class, not portfolio.portfolio_skills.create!.
+      # The association target caches the new record; if this transaction rolls
+      # back, the cached record stays "new" in memory and Portfolio#update!
+      # (failure path) autosaves it again, resurrecting the orphan row.
+      PortfolioSkill.create!(
+        portfolio_id:       portfolio.id,
+        skill_id:           discovered ? nil : skill_data['skill_id'],
+        skill_label:        skill_data['skill_label'],
+        is_discovered:      discovered,
+        ai_level:           level,
+        ai_confidence:      confidence,
+        evidence:           Array(skill_data['evidence']).first(3),
+        competency_summary: skill_data['competency_summary']
+      )
     end
   end
 end
