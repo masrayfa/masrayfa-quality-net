@@ -1,3 +1,4 @@
+// Demo change: no linked spec/AC and no test — should be blocked by policy-gate.
 import { Routes, Route, Navigate } from "react-router-dom";
 import AssessorLayout from "@/components/layout/AssessorLayout";
 import CandidateLayout from "@/components/layout/CandidateLayout";
